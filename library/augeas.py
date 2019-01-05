@@ -29,72 +29,81 @@ description:
 version_added: "1.1"
 requirements:
   - augeas + lenses (augeas-lenses on Debian)
-  - "augeas python bindings (python-augeas on Debian, note: on Debian Wheezy you also need to install libpython2.7, since python-augeas package wrongly does not list it as a requirement)"
+  - augeas python bindings (see notes for debian)
 options:
   command:
     required: false
     choices: [ set, ins, rm, match ]
     description:
-      - 'Whether given path should be modified, inserted, removed or matched. Command "match" passes results through "result" attribute - every item on this list is an object with "label" and "value" (check third example below). Other commands returns true in case of any modification (so this value is always equal to "changed" attribue - this make more sens in case of bulk execution)'
+      - Whether given path should be modified, inserted, removed or matched. Command "match" passes results through "result" attribute - every item on this list is an object with "label" and "value" (check third example below). Other commands returns true in case of any modification (so this value is always equal to "changed" attribue - this make more sens in case of bulk execution)
   path:
     required: false
     description:
-      - 'Variable path.'
+      - Variable path. With `lens` and `file`, it is the relative path within the file tree (see notes)
   value:
     required: false
     description:
-      - 'Variable value (required for "set" command).'
+      - Variable value (required for "set" command)
   label:
     required: false
     description:
-      - 'Label for new node.'
+      - Label for new node
   where:
     required: false
     choices: [before, after]
     description:
-      - 'Position of node insertion against given path.'
+      - Position of node insertion against given path
+  lens:
+    required: false
+    description:
+      - Augeas lens to be loaded
+  file:
+    required: false
+    description:
+      - File to parse
   commands:
     required: false
     description:
-      - 'Execute many commands at once (some configuration entries have to be created/updated at once - it is impossible to split them across multiple "set" calls). Standard shell quoting is allowed (rember to escape all quotes inside pahts/values - check last example). Expected formats: "set path value", "rm path" or "match path" (look into examples for more details). You can separate commands with any white chars (new lines, spaces etc.). Result is passed through "result" attribute and contains list of tuples: (command, command result).'
+      - Execute many commands at once (some configuration entries have to be created/updated at once - it is impossible to split them across multiple "set" calls). Standard shell quoting is allowed (rember to escape all quotes inside pahts/values - check last example). Expected formats: "set path value", "rm path" or "match path" (look into examples for more details). You can separate commands with any white chars (new lines, spaces etc.). Result is passed through "result" attribute and contains list of tuples: (command, command result)
   root:
     required: false
     description:
-      - 'The filesystem root - config files are searched realtively to this path (fallbacks to AUGEAS_ROOT or /).'
+      - The filesystem root - config files are searched realtively to this path (fallbacks to AUGEAS_ROOT or /)
   loadpath:
     required: false
     description:
-      - 'Colon-spearated list of directories that modules should be searched in.'
-examples:
-  - code: 'augeas: path=/files/etc/sudoers/spec[user=\\"sudo\\"]/host_group/command/tag value=PASSWD'
-    description: 'Simple value change'
+      - Colon-spearated list of directories that modules should be searched in
+notes:
+   - On Debian Wheezy you also need to install libpython2.7, since python-augeas package wrongly does not list it as a requirement
+   - When using lens & file, path is relative within the file and is concatenated by the module. This means that file="/mnt/etc/sshd_config" path="AllowUsers/*" is transformed into augeas '/files//mnt/etc/sshd_config/AllowUsers/*' path
+'''
 
-  - code: |
-      - name: Check wether given user is listed in sshd_config
-        action: augeas command='match' path="/files/etc/ssh/sshd_config/AllowUsers/*[.=\\"{{ user }}\\"]"
-        register: user_entry
-      - name: Allow user to login through ssh
-        action: augeas command="set" path="/files/etc/ssh/sshd_config/AllowUsers/01" value="{{ user }}"
-        when: "user_entry.result|length == 0"
-    description: "Quite complex modification - fetch values lists and append new value only if it doesn't exists already in config"
+EXAMPLES = '''
+# Simple value change
+- augeas: path=/files/etc/sudoers/spec[user=\\"sudo\\"]/host_group/command/tag value=PASSWD
 
-  - code: |
-      - name: Add new host to /etc/hosts
-        action:  augeas commands=\'set /files/etc/hosts/01/ipaddr 192.168.0.1
-                                  set /files/etc/hosts/01/canonical pigiron.example.com
-                                  set /files/etc/hosts/01/alias[1] pigiron
-                                  set /files/etc/hosts/01/alias[2] piggy\'
-    description: "Bulk command execution."
+# Quite complex modification - fetch values lists and append new value only if it doesn't exists already in config
+- augeas: command='match' path="/files/etc/ssh/sshd_config/AllowUsers/*[.=\\"{{ user }}\\"]"
+  register: user_entry
+- augeas: command="set" path="/files/etc/ssh/sshd_config/AllowUsers/01" value="{{ user }}"
+  when: "user_entry.result|length == 0"
 
-  - code: |
-      - name: Redifine eth0 interface
-        action:  augeas commands=\'rm /files/etc/network/interfaces/iface[.=\\"eth0\\"]
-                                  set /files/etc/network/interfaces/iface[last()+1] eth0
-                                  set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/family inet
-                                  set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/method manual
-                                  set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/pre-up "ifconfig $IFACE up"
-                                  set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/pre-down "ifconfig $IFACE down"\'
-    description: "Correct quoting in commands expressions (augeas requires quotes in path matching expressions: iface[.=\\"eth0\\"])"
+# Modify sshd_config in custom location
+- augeas: commands="match" lens="sshd" file="/home/paluh/programming/ansible/tests/sshd_config" path="AllowUsers/*"
+
+# Add new host to /etc/hosts (bulk command execution)
+- augeas: commands='set /files/etc/hosts/01/ipaddr 192.168.0.1
+                    set /files/etc/hosts/01/canonical pigiron.example.com
+                    set /files/etc/hosts/01/alias[1] pigiron
+                    set /files/etc/hosts/01/alias[2] piggy'
+
+# Redefine eth0 interface (augeas requires quotes in path matching expressions: iface[.=\\"eth0\\"])
+- augeas: commands='rm /files/etc/network/interfaces/iface[.=\\"eth0\\"]
+                    set /files/etc/network/interfaces/iface[last()+1] eth0
+                    set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/family inet
+                    set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/method manual
+                    set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/pre-up "ifconfig $IFACE up"
+                    set /files/etc/network/interfaces/iface[.=\\"eth0\\"]/pre-down "ifconfig $IFACE down"'
 '''
 
 try:
@@ -105,6 +114,7 @@ from collections import namedtuple
 import ctypes
 import re
 import shlex
+import operator
 
 if augeas:
     # Augeas C API `aug_span` function was introduced on the begining of 2011
@@ -144,7 +154,7 @@ if augeas:
                                                      r(label_start), r(label_end),
                                                      r(value_start), r(value_end),
                                                      r(span_start), r(span_end))
-                    if (ret < 0):
+                    if ret < 0:
                         raise ValueError("Error during span procedure")
 
                     return (filename.value, label_start.value, label_end.value,
@@ -161,15 +171,14 @@ class CommandsParseError(Exception):
         super(CommandsParseError, self).__init__(msg)
 
     def format_commands(self, commands):
-        return '\n'.join('%s %s' % (c, ' '.join(a if a else "''" for a in args.values())) for c,args in commands)
+        return '\n'.join('%s %s' % (c, ' '.join(a if a else "''" for a in args.values())) for c, args in commands)
 
 
 class MissingArgument(CommandsParseError):
 
     def __init__(self, command, value, already_parsed):
         if already_parsed:
-            msg = ('Missing argument "%s" in "%s" statement - already parsed statements:\n%s' %
-                    (value, command, self.format_commands(already_parsed)))
+            msg = ('Missing argument "%s" in "%s" statement - already parsed statements:\n%s' % (value, command, self.format_commands(already_parsed)))
         else:
             msg = 'Missing argument "%s" in "%s" statement' % (value, command)
         super(MissingArgument, self).__init__(msg)
@@ -284,7 +293,7 @@ def parse_commands(commands):
     }
     try:
         tokens = iter(shlex.split(commands, comments=False))
-    except ValueError, e:
+    except ValueError as e:
         raise TokenizerError("Commands parser error (commands should be correctly quoted strings): %s" % e.args[0])
     parsed = []
     for command in tokens:
@@ -293,12 +302,12 @@ def parse_commands(commands):
         params = {}
         for parser in COMMANDS[command]:
             try:
-                value = tokens.next()
+                value = tokens.__next__()
             except StopIteration:
                 raise MissingArgument(command, parser.name, parsed)
             try:
                 params[parser.name] = parser(value)
-            except ParamParseError, e:
+            except ParamParseError as e:
                 raise CommandsParseError('Error parsing parameter value of command "%(command)s":\n%(exception)s' %
                                          {'command': command, 'exception': e})
         parsed.append((command, params))
@@ -325,7 +334,7 @@ class AugeasError(ExceptionWithMessage):
                 errors.append([(p, augeas_instance.get(p)) for p in augeas_instance.match(error + '/' + '*')])
 
         if errors:
-            errors = '\n\n'.join('\n'.join('%s: %s'%(p, v) for p,v in error) for error in errors)
+            errors = '\n\n'.join('\n'.join('%s: %s'%(p, v) for p, v in error) for error in errors)
             return ('Augeas has reported following problems '
                     ' (it\'s possible that some of them are unrelated to your action):\n\n%s' % errors)
         if self.error_type is not None:
@@ -372,6 +381,13 @@ def execute(augeas_instance, commands):
     changed = False
     for command, params in commands:
         result = None
+        if 'lens' in params and 'file' in params:
+            lens = params['lens']
+            file_ = params['file']
+            params['path'] = "/files%s/%s" % (file_, params['path'])
+            if command != 'transform':
+                augeas_instance.transform(lens, file_)
+                augeas_instance.load()
         if command == 'set':
             path = params['path']
             value = params['value']
@@ -400,20 +416,27 @@ def execute(augeas_instance, commands):
                 raise InsertError(command, params, augeas_instance)
             result = changed = True
         elif command == 'transform':
-            lens = params['lens']
-            file_ = params['file']
             excl = params['filter'] == 'excl'
             augeas_instance.transform(lens, file_, excl)
         elif command == 'load':
             augeas_instance.load()
         else: # match
-            result = [{'label': s, 'value': augeas_instance.get(s)} for s in augeas_instance.match(**params)]
+            result = [{'label': s, 'value': augeas_instance.get(s)} for s in augeas_instance.match(params['path'])]
         results.append((command + ' ' + ' '.join(p if p else '""' for p in params.values()), result))
 
     try:
         augeas_instance.save()
     except IOError:
         raise SaveError(augeas_instance)
+
+    # https://github.com/hercules-team/augeas/wiki/Change-how-files-are-saved
+    changed_files = augeas_instance.match('/augeas/events/saved')
+    if len(changed_files) > 0:
+        result = [augeas_instance.get(s) for s in changed_files]
+        changed = True
+    else:
+        changed = False
+
     return results, changed
 
 def main():
@@ -428,7 +451,7 @@ def main():
             where=dict(default=None),
             label=dict(default=None),
             lens=dict(default=None),
-            file=dict(defulat=None),
+            file=dict(default=None),
             filter=dict(default=None)
         ),
         mutually_exclusive=[['commands', 'command'], ['commands', 'value'],
@@ -440,8 +463,19 @@ def main():
         module.fail_json(msg='Could not import python augeas module.'
                              ' Please install augeas related packages and '
                              'augeas python bindings.')
+
+    # Set our flags, indicating if we have span support:
+    flags = getattr(Augeas, 'ENABLE_SPAN', 0)
+    # If we've been given an explicit lens to use, don't bother with the
+    # autoload shenanigans.
+    # This speeds up module invocation, and because the lens default incl/excl
+    # list overrides transform meaning we can't use a specific lens for an
+    # existing "known" file.
+    if module.params['lens'] is not None:
+        flags = flags | getattr(Augeas, 'NO_MODL_AUTOLOAD', 0)
+
     augeas_instance = Augeas(root=module.params['root'], loadpath=module.params['loadpath'],
-                             flags=getattr(Augeas, 'ENABLE_SPAN', 0))
+                             flags=flags)
     commands = None
     if module.params['command'] is not None:
         command = module.params['command']
@@ -463,15 +497,20 @@ def main():
             params = {}
         else: # rm or match
             params = {'path': module.params['path']}
+        if operator.xor(bool(module.params['lens']), bool(module.params['file'])):
+            module.fail_json(msg='Both "lens" and "file" must be defined.')
+        if module.params['lens'] and module.params['file']:
+            params['lens'] = module.params['lens']
+            params['file'] = module.params['file']
         commands = [(command, params)]
     else:
         try:
             commands = parse_commands(module.params['commands'])
-        except CommandsParseError, e:
+        except CommandsParseError as e:
             module.fail_json(msg=e.msg)
     try:
         results, changed = execute(augeas_instance, commands)
-    except AugeasError, e:
+    except AugeasError as e:
         module.fail_json(msg=e.msg)
 
     # in case of single command execution return only one result
